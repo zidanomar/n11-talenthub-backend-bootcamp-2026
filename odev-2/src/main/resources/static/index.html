@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Home</title>
+    <style>
+      body {
+        font-family: sans-serif;
+        max-width: 480px;
+        margin: 60px auto;
+        padding: 0 1rem;
+      }
+      h2 {
+        margin-bottom: 1.5rem;
+      }
+      fieldset {
+        margin-bottom: 1.5rem;
+        border: 1px solid #ccc;
+        padding: 0.75rem 1rem;
+      }
+      legend {
+        font-weight: bold;
+        font-size: 0.9rem;
+        padding: 0 0.3rem;
+      }
+      .timers {
+        display: flex;
+        gap: 2rem;
+      }
+      .timer-block {
+        text-align: center;
+      }
+      .timer-label {
+        font-size: 0.8rem;
+        color: #555;
+        margin-bottom: 0.2rem;
+      }
+      .timer-value {
+        font-size: 1.8rem;
+        font-weight: bold;
+        font-variant-numeric: tabular-nums;
+      }
+      .timer-value.warning {
+        color: orange;
+      }
+      .timer-value.danger {
+        color: red;
+      }
+      .timer-value.expired {
+        color: #aaa;
+      }
+      .actions {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        margin-bottom: 1rem;
+      }
+      button {
+        padding: 0.4rem 0.9rem;
+        cursor: pointer;
+        border: 1px solid #999;
+        background: #fff;
+        border-radius: 4px;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      #toast {
+        display: none;
+        padding: 0.6rem;
+        border: 1px solid;
+        border-radius: 4px;
+        margin-bottom: 1rem;
+        font-size: 0.9rem;
+      }
+      #toast.success {
+        border-color: green;
+        color: green;
+        background: #f0fff0;
+      }
+      #toast.error {
+        border-color: red;
+        color: red;
+        background: #fff0f0;
+      }
+      #toast.info {
+        border-color: blue;
+        color: blue;
+        background: #f0f0ff;
+      }
+      #user-result {
+        font-size: 0.9rem;
+        margin-top: 0.5rem;
+      }
+      #user-result.error {
+        color: red;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="toast"></div>
+
+    <h2>Home</h2>
+
+    <fieldset>
+      <legend>Token Timers</legend>
+      <div class="timers">
+        <div class="timer-block">
+          <div class="timer-label">Access Token</div>
+          <div class="timer-value" id="access-timer">--:--</div>
+        </div>
+        <div class="timer-block">
+          <div class="timer-label">Refresh Token</div>
+          <div class="timer-value" id="refresh-timer">--:--</div>
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Actions</legend>
+      <div class="actions">
+        <button onclick="getCurrentUser()">Get Current User</button>
+        <button onclick="manualRefresh()">Refresh Access Token</button>
+        <button onclick="logout()">Logout</button>
+      </div>
+      <div id="user-result"></div>
+    </fieldset>
+
+    <script>
+      let accessToken = localStorage.getItem('accessToken');
+      let refreshExpiresAt = parseInt(
+        localStorage.getItem('refreshExpiresAt') || '0',
+        10,
+      );
+      let refreshing = false;
+
+      if (!accessToken) window.location.href = '/login.html';
+
+      function decodeJwtExp(token) {
+        try {
+          return JSON.parse(atob(token.split('.')[1])).exp * 1000;
+        } catch {
+          return null;
+        }
+      }
+
+      function formatTime(ms) {
+        if (ms <= 0) return '00:00';
+        const s = Math.ceil(ms / 1000);
+        return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+      }
+
+      function setColor(el, ms) {
+        el.classList.remove('warning', 'danger', 'expired');
+        if (ms <= 0) el.classList.add('expired');
+        else if (ms < 15000) el.classList.add('danger');
+        else if (ms < 30000) el.classList.add('warning');
+      }
+
+      function tick() {
+        const now = Date.now();
+        const accessExp = accessToken ? decodeJwtExp(accessToken) : null;
+        const accessMs = accessExp ? accessExp - now : -1;
+        const refreshMs = refreshExpiresAt ? refreshExpiresAt - now : -1;
+
+        const accessEl = document.getElementById('access-timer');
+        const refreshEl = document.getElementById('refresh-timer');
+
+        accessEl.textContent = formatTime(accessMs);
+        refreshEl.textContent = formatTime(refreshMs);
+        setColor(accessEl, accessMs);
+        setColor(refreshEl, refreshMs);
+
+        if (accessMs <= 0 && refreshMs > 0 && !refreshing) doRefresh();
+      }
+
+      setInterval(tick, 500);
+      tick();
+
+      async function doRefresh() {
+        refreshing = true;
+        try {
+          const res = await fetch('/api/auth/refresh', {
+            method: 'POST',
+            credentials: 'include',
+          });
+          if (!res.ok) throw new Error();
+          const body = await res.json();
+          accessToken = body.data;
+          localStorage.setItem('accessToken', accessToken);
+          showToast('Access token refreshed', 'info');
+        } catch {
+          showToast('Could not refresh token', 'error');
+        } finally {
+          refreshing = false;
+        }
+      }
+
+      async function manualRefresh() {
+        await doRefresh();
+        tick();
+      }
+
+      async function getCurrentUser() {
+        const resultEl = document.getElementById('user-result');
+        resultEl.className = '';
+        resultEl.textContent = 'Loading…';
+
+        try {
+          const res = await fetch('/api/users/current', {
+            headers: { Authorization: `Bearer ${accessToken}` },
+            credentials: 'include',
+          });
+          const body = await res.json();
+
+          if (!res.ok) {
+            localStorage.removeItem('accessToken');
+            localStorage.removeItem('refreshExpiresAt');
+            resultEl.className = 'error';
+            resultEl.innerHTML = `${escHtml(body.message || 'Unauthorized')} — <a href="/login.html">Go to Login</a>`;
+            return;
+          }
+
+          resultEl.textContent = `Username: ${escHtml(body.data.username)}`;
+        } catch {
+          resultEl.className = 'error';
+          resultEl.textContent = 'Network error';
+        }
+      }
+
+      getCurrentUser();
+
+      async function logout() {
+        try {
+          await fetch('/api/auth/logout', {
+            method: 'POST',
+            credentials: 'include',
+          });
+        } catch {}
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('refreshExpiresAt');
+        window.location.href = '/login.html';
+      }
+
+      function showToast(msg, type) {
+        const el = document.getElementById('toast');
+        el.textContent = msg;
+        el.className = type;
+        el.style.display = 'block';
+        setTimeout(() => {
+          el.style.display = 'none';
+        }, 3500);
+      }
+
+      function escHtml(s) {
+        return s
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+      }
+    </script>
+  </body>
+</html>

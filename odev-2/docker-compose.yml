@@ -1,0 +1,11 @@
+services:
+  app:
+    build: .
+    ports:
+      - "${PORT:-8080}:8080"
+    environment:
+      PORT: ${PORT:-8080}
+      JWT_SECRET: ${JWT_SECRET:-secret}
+      JWT_EXPIRATION: ${JWT_EXPIRATION:-1}
+      JWT_REFRESH_EXPIRATION: ${JWT_REFRESH_EXPIRATION:-3}
+      BCRYPT_STRENGTH: ${BCRYPT_STRENGTH:-10}

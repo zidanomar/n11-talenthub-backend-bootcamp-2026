@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Login</title>
+    <style>
+      body {
+        font-family: sans-serif;
+        max-width: 360px;
+        margin: 80px auto;
+        padding: 0 1rem;
+      }
+      h2 {
+        margin-bottom: 1rem;
+      }
+      .tabs {
+        display: flex;
+        gap: 0.5rem;
+        margin-bottom: 1.5rem;
+      }
+      .tab-btn {
+        padding: 0.4rem 0.9rem;
+        cursor: pointer;
+        border: 1px solid #999;
+        background: #fff;
+        border-radius: 4px;
+      }
+      .tab-btn.active {
+        background: #000;
+        color: #fff;
+        border-color: #000;
+      }
+      label {
+        display: block;
+        margin-bottom: 0.2rem;
+        font-size: 0.9rem;
+      }
+      input {
+        display: block;
+        width: 100%;
+        padding: 0.4rem;
+        margin-bottom: 0.2rem;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        font-size: 0.95rem;
+        box-sizing: border-box;
+      }
+      input.error {
+        border-color: red;
+      }
+      .field-error {
+        color: red;
+        font-size: 0.8rem;
+        min-height: 1.1rem;
+        margin-bottom: 0.6rem;
+      }
+      button[type='submit'] {
+        width: 100%;
+        padding: 0.5rem;
+        margin-top: 0.5rem;
+        cursor: pointer;
+      }
+      #toast {
+        display: none;
+        padding: 0.6rem;
+        border: 1px solid;
+        border-radius: 4px;
+        margin-bottom: 1rem;
+        font-size: 0.9rem;
+      }
+      #toast.success {
+        border-color: green;
+        color: green;
+        background: #f0fff0;
+      }
+      #toast.error {
+        border-color: red;
+        color: red;
+        background: #fff0f0;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>Auth Demo</h2>
+
+    <div id="toast"></div>
+
+    <div class="tabs">
+      <button
+        class="tab-btn active"
+        id="tab-signin"
+        onclick="switchTab('signin')"
+      >
+        Sign In
+      </button>
+      <button class="tab-btn" id="tab-signup" onclick="switchTab('signup')">
+        Sign Up
+      </button>
+    </div>
+
+    <form id="auth-form" novalidate>
+      <label for="username">Username</label>
+      <input id="username" type="text" placeholder="username" />
+      <div class="field-error" id="username-error"></div>
+
+      <label for="password">Password</label>
+      <input id="password" type="password" placeholder="password" />
+      <div class="field-error" id="password-error"></div>
+
+      <button type="submit" id="submit-btn">Sign In</button>
+    </form>
+
+    <script>
+      let currentTab = 'signin';
+
+      if (localStorage.getItem('accessToken')) window.location.href = '/';
+
+      function switchTab(tab) {
+        currentTab = tab;
+        document
+          .getElementById('tab-signin')
+          .classList.toggle('active', tab === 'signin');
+        document
+          .getElementById('tab-signup')
+          .classList.toggle('active', tab === 'signup');
+        document.getElementById('submit-btn').textContent =
+          tab === 'signin' ? 'Sign In' : 'Sign Up';
+        clearErrors();
+      }
+
+      function clearErrors() {
+        ['username', 'password'].forEach((f) => {
+          document.getElementById(f).classList.remove('error');
+          document.getElementById(f + '-error').textContent = '';
+        });
+      }
+
+      function setFieldError(field, msg) {
+        document.getElementById(field).classList.add('error');
+        document.getElementById(field + '-error').textContent = msg;
+      }
+
+      function validate(username, password) {
+        let ok = true;
+        clearErrors();
+        if (!username || username.length < 3) {
+          setFieldError('username', 'Min 3 characters');
+          ok = false;
+        } else if (username.length > 20) {
+          setFieldError('username', 'Max 20 characters');
+          ok = false;
+        }
+        if (!password || password.length < 6) {
+          setFieldError('password', 'Min 6 characters');
+          ok = false;
+        }
+        return ok;
+      }
+
+      function showToast(msg, type) {
+        const el = document.getElementById('toast');
+        el.textContent = msg;
+        el.className = type;
+        el.style.display = 'block';
+        setTimeout(() => {
+          el.style.display = 'none';
+        }, 3500);
+      }
+
+      document
+        .getElementById('auth-form')
+        .addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const username = document.getElementById('username').value.trim();
+          const password = document.getElementById('password').value;
+          if (!validate(username, password)) return;
+
+          const btn = document.getElementById('submit-btn');
+          btn.disabled = true;
+
+          try {
+            const res = await fetch(
+              `/api/auth/${currentTab === 'signin' ? 'signin' : 'signup'}`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ username, password }),
+              },
+            );
+            const body = await res.json();
+
+            if (!res.ok) {
+              if (body.errors) {
+                Object.entries(body.errors).forEach(([f, m]) =>
+                  setFieldError(f, m),
+                );
+              } else {
+                showToast(body.message || 'Error', 'error');
+              }
+              return;
+            }
+
+            localStorage.setItem('accessToken', body.data.accessToken);
+            localStorage.setItem(
+              'refreshExpiresAt',
+              body.data.refreshExpiresAt,
+            );
+            window.location.href = '/';
+          } catch {
+            showToast('Network error', 'error');
+          } finally {
+            btn.disabled = false;
+          }
+        });
+    </script>
+  </body>
+</html>
