@@ -1,0 +1,22 @@
+spring:
+  cloud:
+    config:
+      enabled: false
+  config:
+    import: "optional:configserver:"
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration
+
+eureka:
+  client:
+    enabled: false
+
+iyzipay:
+  api-key: sandbox-test-key
+  secret-key: sandbox-test-secret
+  base-url: https://sandbox-api.iyzipay.com
+
+payment:
+  callback-base-url: http://localhost:8080/api/payments/callback
+  frontend-order-url: http://localhost:3000/orders

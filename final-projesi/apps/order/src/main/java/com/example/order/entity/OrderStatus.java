@@ -1,0 +1,7 @@
+package com.example.order.entity;
+
+public enum OrderStatus {
+    PENDING, PAYMENT_FAILED, PAID, SHIPPED, DELIVERED, CANCELLED,
+    RETURNING, RETURN_SHIPPED, REFUNDING, RETURNED, RETURN_FAILED,
+    COMPLETED
+}

@@ -1,0 +1,104 @@
+spring:
+  application:
+    name: gateway
+  config:
+    import: "optional:configserver:http://localhost:8888"
+  cloud:
+    gateway:
+      routes:
+        - id: product
+          uri: lb://product
+          predicates:
+            - Path=/api/products,/api/products/**
+        - id: cart
+          uri: lb://cart
+          predicates:
+            - Path=/api/cart,/api/cart/**
+        - id: order
+          uri: lb://order
+          predicates:
+            - Path=/api/orders,/api/orders/**
+        - id: user
+          uri: lb://user
+          predicates:
+            - Path=/api/users,/api/users/**
+        - id: payment
+          uri: lb://payment
+          predicates:
+            - Path=/api/payments,/api/payments/**
+        - id: notification
+          uri: lb://notification
+          predicates:
+            - Path=/api/notifications,/api/notifications/**
+        - id: user-docs
+          uri: lb://user
+          predicates:
+            - Path=/v3/api-docs/user
+          filters:
+            - RewritePath=/v3/api-docs/user, /v3/api-docs
+        - id: product-docs
+          uri: lb://product
+          predicates:
+            - Path=/v3/api-docs/product
+          filters:
+            - RewritePath=/v3/api-docs/product, /v3/api-docs
+        - id: cart-docs
+          uri: lb://cart
+          predicates:
+            - Path=/v3/api-docs/cart
+          filters:
+            - RewritePath=/v3/api-docs/cart, /v3/api-docs
+        - id: order-docs
+          uri: lb://order
+          predicates:
+            - Path=/v3/api-docs/order
+          filters:
+            - RewritePath=/v3/api-docs/order, /v3/api-docs
+        - id: payment-docs
+          uri: lb://payment
+          predicates:
+            - Path=/v3/api-docs/payment
+          filters:
+            - RewritePath=/v3/api-docs/payment, /v3/api-docs
+        - id: client-web
+          uri: http://client-web:3000
+          predicates:
+            - Path=/**
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    disable-swagger-default-url: true
+    urls:
+      - name: user
+        url: /v3/api-docs/user
+      - name: product
+        url: /v3/api-docs/product
+      - name: cart
+        url: /v3/api-docs/cart
+      - name: order
+        url: /v3/api-docs/order
+      - name: payment
+        url: /v3/api-docs/payment
+  api-docs:
+    enabled: false
+
+server:
+  port: 8080
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+
+management:
+  health:
+    probes:
+      enabled: true
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always

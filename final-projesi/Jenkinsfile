@@ -1,0 +1,268 @@
+pipeline {
+    agent any
+
+    environment {
+        REGISTRY = 'registry.hogwarts-1.local/n11-bootcamp'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                deleteDir()
+                withCredentials([string(credentialsId: 'gitea', variable: 'GIT_TOKEN')]) {
+                    sh 'git clone http://token:${GIT_TOKEN}@gitea:3000/zidanomar/n11-bootcamp-temp.git .'
+                }
+            }
+        }
+
+        stage('Guard: Skip Infra Commits') {
+            steps {
+                script {
+                    def msg = sh(script: 'git log -1 --pretty=%s', returnStdout: true).trim()
+                    if (msg.startsWith('infra:')) {
+                        currentBuild.description = 'Skipped — infra commit'
+                        currentBuild.result = 'NOT_BUILT'
+                        error('Infra commit — skipping build to prevent loop')
+                    }
+                }
+            }
+        }
+
+        // stage('Detect Changes') {
+        //     steps {
+        //         script {
+        //             def changedFiles = sh(
+        //                 script: '''
+        //                     if git rev-parse HEAD~1 >/dev/null 2>&1; then
+        //                         git diff --name-only HEAD~1 HEAD
+        //                     else
+        //                         git diff --name-only $(git rev-list --max-parents=0 HEAD) HEAD
+        //                     fi
+        //                 ''',
+        //                 returnStdout: true
+        //             ).trim()
+
+        //             if (!changedFiles) {
+        //                 env.SERVICES_TO_BUILD = ''
+        //                 echo 'No changed files detected.'
+        //                 return
+        //             }
+
+        //             def lines = changedFiles.split('\n')
+
+        //             def appDirToService = [
+        //                 'cart'        : 'cart',
+        //                 'config'      : 'config',
+        //                 'eureka'      : 'eureka',
+        //                 'gateway'     : 'gateway',
+        //                 'notification': 'notification',
+        //                 'order'       : 'order',
+        //                 'payment'     : 'payment',
+        //                 'product'     : 'product',
+        //                 'shipping'    : 'shipping',
+        //                 'user'        : 'user',
+        //                 'web'         : 'client-web',
+        //             ]
+
+        //             def nonWebServices = ['cart', 'config', 'eureka', 'gateway', 'notification',
+        //                                   'order', 'payment', 'product', 'shipping', 'user']
+
+        //             def packageChanged = lines.any { it.startsWith('packages/') }
+        //             def servicesToBuild = [] as LinkedHashSet
+
+        //             if (packageChanged) {
+        //                 servicesToBuild.addAll(nonWebServices)
+        //                 echo 'packages/ changed — rebuilding all backend services'
+        //             }
+
+        //             for (file in lines) {
+        //                 def matcher = (file =~ /^apps\/([^\/]+)\//)
+        //                 if (matcher) {
+        //                     def svc = appDirToService[matcher[0][1]]
+        //                     if (svc) servicesToBuild.add(svc)
+        //                 }
+        //             }
+
+        //             env.SERVICES_TO_BUILD = servicesToBuild.join(',')
+        //             echo "Services to build: ${env.SERVICES_TO_BUILD ?: '(none)'}"
+        //         }
+        //     }
+        // }
+
+        stage('Detect Changes') {
+            steps {
+                script {
+                    env.SERVICES_TO_BUILD = 'cart,config,eureka,gateway,notification,order,payment,product,shipping,user,client-web'
+                    echo "Building all services: ${env.SERVICES_TO_BUILD}"
+                }
+            }
+        }
+
+        stage('Compute Tag') {
+            when { expression { env.SERVICES_TO_BUILD?.trim() } }
+            steps {
+                script {
+                    def date = sh(script: 'date +%Y.%m.%d', returnStdout: true).trim()
+                    def count = sh(
+                        script: "git tag -l '${date}.*' | wc -l | tr -d ' '",
+                        returnStdout: true
+                    ).trim().toInteger() + 1
+                    env.BUILD_TAG = "${date}.${count}"
+                    echo "Build tag: ${env.BUILD_TAG}"
+                }
+            }
+        }
+
+        stage('Install Shared Lib') {
+            steps {
+                sh 'mvn -B -f packages/lib/pom.xml install -DskipTests'
+            }
+        }
+
+        stage('Test Backend') {
+            steps {
+                sh 'make test'
+            }
+            post {
+                always {
+                    junit allowEmptyResults: true, testResults: 'apps/*/target/surefire-reports/*.xml'
+                }
+            }
+        }
+
+        stage('Build & Push Images') {
+            when { expression { env.SERVICES_TO_BUILD?.trim() } }
+            steps {
+                script {
+                    // Services that use root context with explicit Dockerfile
+                    def rootContextServices = ['cart', 'config', 'eureka', 'gateway', 'notification',
+                                               'order', 'payment', 'product', 'shipping', 'user']
+
+                    def services = env.SERVICES_TO_BUILD.split(',')
+
+                    for (svc in services) {
+                        def image = "${env.REGISTRY}/${svc}:${env.BUILD_TAG}"
+                        def imageLatest = "${env.REGISTRY}/${svc}:latest"
+
+                        if (svc == 'client-web') {
+                            sh "docker build -t ${image} apps/web"
+                        } else {
+                            sh "docker build -t ${image} -f apps/${svc}/Dockerfile ."
+                        }
+
+                        sh "docker push ${image}"
+                        sh "docker tag ${image} ${imageLatest}"
+                        sh "docker push ${imageLatest}"
+
+                        echo "Pushed ${image}"
+                    }
+                }
+            }
+        }
+
+        stage('Tag Commit') {
+            when { expression { env.SERVICES_TO_BUILD?.trim() } }
+            steps {
+                script {
+                    sh """
+                        git config user.email "jenkins@hogwarts-1.local"
+                        git config user.name "Jenkins"
+                        git tag ${env.BUILD_TAG}
+                    """
+                }
+            }
+        }
+
+        stage('Update Infra & Push') {
+            when { expression { env.SERVICES_TO_BUILD?.trim() } }
+            steps {
+                withCredentials([string(credentialsId: 'gitea', variable: 'GIT_TOKEN')]) {
+                    script {
+                        def services = env.SERVICES_TO_BUILD.split(',')
+
+                        for (svc in services) {
+                            def kustomFile = "infra/k8s/overlays/prod/${svc}/kustomization.yaml"
+                            sh "sed -i 's|newTag:.*|newTag: ${env.BUILD_TAG}|' ${kustomFile}"
+                        }
+
+                        def serviceList = services.join(', ')
+                        sh """
+                            git add infra/k8s/overlays/prod/
+                            git commit -m "infra: update ${serviceList} to ${env.BUILD_TAG}"
+                        """
+
+                        def remoteWithToken = "http://token:${GIT_TOKEN}@gitea:3000/zidanomar/n11-bootcamp-temp.git"
+
+                        sh "git push ${remoteWithToken} HEAD:main"
+                        sh "git push ${remoteWithToken} ${env.BUILD_TAG}"
+                    }
+                }
+            }
+        }
+
+        stage('Deploy to Kubernetes') {
+            when { expression { env.SERVICES_TO_BUILD?.trim() } }
+            steps {
+                withCredentials([
+                    string(credentialsId: 'iyzipay-api-key', variable: 'IYZIPAY_API_KEY'),
+                    string(credentialsId: 'iyzipay-secret-key', variable: 'IYZIPAY_SECRET_KEY'),
+                    string(credentialsId: 'postgres', variable: 'POSTGRES_USERNAME'),
+                    string(credentialsId: 'postgres', variable: 'POSTGRES_PASSWORD'),
+                    string(credentialsId: 'keycloak-admin', variable: 'KEYCLOAK_ADMIN_USERNAME'),
+                    string(credentialsId: 'keycloak-admin', variable: 'KEYCLOAK_ADMIN_PASSWORD'),
+                    string(credentialsId: 'keycloak-db', variable: 'KEYCLOAK_DB_USERNAME'),
+                    string(credentialsId: 'keycloak-db', variable: 'KEYCLOAK_DB_PASSWORD'),
+                    string(credentialsId: 'keycloak-secret', variable: 'KEYCLOAK_CLIENT_SECRET')
+                ]) {
+                    sh '''
+                        cat > infra/k8s/overlays/prod/payment/iyzipay-secret.yaml <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: iyzipay-credentials
+type: Opaque
+stringData:
+  api-key: "${IYZIPAY_API_KEY}"
+  secret-key: "${IYZIPAY_SECRET_KEY}"
+EOF
+
+                        cat > infra/k8s/overlays/prod/postgres/postgres-secret.yaml <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-credentials
+type: Opaque
+stringData:
+  username: "${POSTGRES_USERNAME}"
+  password: "${POSTGRES_PASSWORD}"
+EOF
+
+                        cat > infra/k8s/overlays/prod/keycloak/keycloak-secret.yaml <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: keycloak-credentials
+type: Opaque
+stringData:
+  admin-username: "${KEYCLOAK_ADMIN_USERNAME}"
+  admin-password: "${KEYCLOAK_ADMIN_PASSWORD}"
+  db-username: "${KEYCLOAK_DB_USERNAME}"
+  db-password: "${KEYCLOAK_DB_PASSWORD}"
+  client-secret: "${KEYCLOAK_CLIENT_SECRET}"
+EOF
+                    '''
+                }
+                sh 'kubectl apply -k infra/k8s/overlays/prod'
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "Build ${env.BUILD_TAG ?: 'N/A'} complete. Services: ${env.SERVICES_TO_BUILD ?: 'none'}"
+        }
+        failure {
+            echo 'Pipeline failed.'
+        }
+    }
+}

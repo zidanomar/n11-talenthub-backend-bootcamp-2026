@@ -1,0 +1,71 @@
+keycloak:
+  server-url: http://keycloak:8080
+  realm: nilfheim
+  admin:
+    username: ${KEYCLOAK_ADMIN_USERNAME}
+    password: ${KEYCLOAK_ADMIN_PASSWORD}
+  client:
+    id: elbaph
+    secret: ${KEYCLOAK_CLIENT_SECRET}
+
+spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: http://keycloak:8080/realms/nilfheim/protocol/openid-connect/certs
+
+payment:
+  callback-base-url: http://localhost:8080/api/payments/callback
+  frontend-order-url: http://localhost:8080/orders
+
+rabbitmq:
+  exchange: events
+  queues:
+    payment: payment.queue
+    shipping: shipping.queue
+    shipping-return: shipping.return.queue
+    order-payment-accepted: order.payment-accepted.queue
+    order-payment-rejected: order.payment-rejected.queue
+    order-shipping-update: order.shipping-update.queue
+    order-return-shipped: order.return-shipped.queue
+    order-return-delivered: order.return-delivered.queue
+    order-refund-completed: order.refund-completed.queue
+    order-refund-failed: order.refund-failed.queue
+    payment-refund-initiate: payment.refund-initiate.queue
+  routing-keys:
+    order-created: order.created
+    payment-accepted: payment.accepted
+    payment-rejected: payment.rejected
+    shipping-processing: shipping.processing
+    shipping-delivering: shipping.delivering
+    shipping-delivered: shipping.delivered
+    return-requested: return.requested
+    return-shipped: return.shipped
+    return-delivered: return.delivered
+    refund-initiate: refund.initiate
+    refund-completed: refund.completed
+    refund-failed: refund.failed
+    product-price-updated: product.price.updated
+    product-deleted: product.deleted
+    notification-order-created: notification.order.created
+    notification-payment-accepted: notification.payment.accepted
+    notification-payment-rejected: notification.payment.rejected
+    notification-order-shipped: notification.order.shipped
+    notification-order-delivered: notification.order.delivered
+    notification-return-initiated: notification.return.initiated
+    notification-return-shipped: notification.return.shipped
+    notification-refunding: notification.refunding
+    notification-returned: notification.returned
+    notification-return-failed: notification.return.failed
+  notification-queues:
+    order-created: notification.order-created.queue
+    payment-accepted: notification.payment-accepted.queue
+    payment-rejected: notification.payment-rejected.queue
+    order-shipped: notification.order-shipped.queue
+    order-delivered: notification.order-delivered.queue
+    return-initiated: notification.return-initiated.queue
+    return-shipped: notification.return-shipped.queue
+    refunding: notification.refunding.queue
+    returned: notification.returned.queue
+    return-failed: notification.return-failed.queue

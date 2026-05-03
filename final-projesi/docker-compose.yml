@@ -1,0 +1,325 @@
+services:
+  # Infrastructure
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    volumes:
+      - ./scripts/postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-network
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-network
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    restart: unless-stopped
+    command: start-dev --import-realm
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: keycloak
+      KC_HEALTH_ENABLED: "true"
+    volumes:
+      - ./apps/keycloak/nilfheim-realm.json:/opt/keycloak/data/import/nilfheim-realm.json
+    ports:
+      - "8888:8080"
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -q -O- http://localhost:9000/health/ready | grep -q UP" ]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    restart: unless-stopped
+    ports:
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    healthcheck:
+      test: [ "CMD", "rabbitmq-diagnostics", "ping" ]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - app-network
+
+  # Platform Services
+
+  eureka:
+    build:
+      context: .
+      dockerfile: apps/eureka/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8761:8761"
+    networks:
+      - app-network
+
+  config:
+    build:
+      context: .
+      dockerfile: apps/config/Dockerfile
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  gateway:
+    build:
+      context: .
+      dockerfile: apps/gateway/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_CONFIG_IMPORT: configserver:http://config:8888
+      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://eureka:8761/eureka/
+      EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
+    depends_on:
+      - eureka
+      - config
+      - keycloak
+    networks:
+      - app-network
+
+  client-web:
+    build:
+      context: ./apps/web
+    restart: unless-stopped
+    environment:
+      HOST: 0.0.0.0
+      PORT: "3000"
+      NODE_ENV: production
+      INTERNAL_API_BASE_URL: http://gateway:8080
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -qO- http://127.0.0.1:3000/ >/dev/null || exit 1" ]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - app-network
+
+  # ── Application Services ────────────────────────────────────────────────────
+
+  product:
+    build:
+      context: .
+      dockerfile: apps/product/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8081:8080"
+    environment:
+      SPRING_CONFIG_IMPORT: configserver:http://config:8888
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/productdb
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: "5672"
+      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://eureka:8761/eureka/
+      EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
+      PRODUCT_IMAGES_PATH: /app/images
+    volumes:
+      - ./data/product-images:/app/images
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      eureka:
+        condition: service_started
+      config:
+        condition: service_started
+    networks:
+      - app-network
+
+  cart:
+    build:
+      context: .
+      dockerfile: apps/cart/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8082:8080"
+    environment:
+      SPRING_CONFIG_IMPORT: configserver:http://config:8888
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://eureka:8761/eureka/
+      EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
+    depends_on:
+      redis:
+        condition: service_healthy
+      eureka:
+        condition: service_started
+      config:
+        condition: service_started
+    networks:
+      - app-network
+
+  order:
+    build:
+      context: .
+      dockerfile: apps/order/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8084:8080"
+    environment:
+      SPRING_CONFIG_IMPORT: configserver:http://config:8888
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/orderdb
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: "5672"
+      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://eureka:8761/eureka/
+      EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      eureka:
+        condition: service_started
+      config:
+        condition: service_started
+    networks:
+      - app-network
+
+  user:
+    build:
+      context: .
+      dockerfile: apps/user/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8085:8080"
+    environment:
+      SPRING_CONFIG_IMPORT: configserver:http://config:8888
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/userdb
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://eureka:8761/eureka/
+      EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+      eureka:
+        condition: service_started
+      config:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  payment:
+    build:
+      context: .
+      dockerfile: apps/payment/Dockerfile
+    restart: unless-stopped
+    environment:
+      SPRING_CONFIG_IMPORT: configserver:http://config:8888
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: "5672"
+      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://eureka:8761/eureka/
+      EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
+      IYZIPAY_API_KEY: ${IYZIPAY_API_KEY:-}
+      IYZIPAY_SECRET_KEY: ${IYZIPAY_SECRET_KEY:-}
+      PAYMENT_CALLBACK_BASE_URL: http://localhost:8080/api/payments/callback
+      PAYMENT_FRONTEND_ORDER_URL: http://localhost:8080/orders
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/paymentdb
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+    ports:
+      - "8086:8080"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      eureka:
+        condition: service_started
+      config:
+        condition: service_started
+    networks:
+      - app-network
+
+  shipping:
+    build:
+      context: .
+      dockerfile: apps/shipping/Dockerfile
+    restart: unless-stopped
+    environment:
+      SPRING_CONFIG_IMPORT: configserver:http://config:8888
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: "5672"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      config:
+        condition: service_started
+    networks:
+      - app-network
+
+  notification:
+    build:
+      context: .
+      dockerfile: apps/notification/Dockerfile
+    restart: unless-stopped
+    environment:
+      SPRING_CONFIG_IMPORT: configserver:http://config:8888
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/notificationdb
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: "5672"
+      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://eureka:8761/eureka/
+      EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      eureka:
+        condition: service_started
+      config:
+        condition: service_started
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge

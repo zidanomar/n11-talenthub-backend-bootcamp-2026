@@ -1,0 +1,15 @@
+spring:
+  cloud:
+    config:
+      enabled: false
+  config:
+    import: optional:configserver:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://localhost:8180/realms/test
+
+eureka:
+  client:
+    enabled: false
