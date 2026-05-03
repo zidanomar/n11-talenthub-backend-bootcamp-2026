@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init
+data:
+  init.sql: |
+    CREATE USER keycloak WITH PASSWORD 'keycloak';
+    CREATE DATABASE productdb;
+    CREATE DATABASE orderdb;
+    CREATE DATABASE userdb;
+    CREATE DATABASE notificationdb;
+    CREATE DATABASE paymentdb;
+    CREATE DATABASE keycloak OWNER keycloak;
+    GRANT ALL PRIVILEGES ON DATABASE productdb TO postgres;
+    GRANT ALL PRIVILEGES ON DATABASE orderdb TO postgres;
+    GRANT ALL PRIVILEGES ON DATABASE userdb TO postgres;
+    GRANT ALL PRIVILEGES ON DATABASE notificationdb TO postgres;
+    GRANT ALL PRIVILEGES ON DATABASE paymentdb TO postgres;
+    GRANT ALL PRIVILEGES ON DATABASE keycloak TO keycloak;

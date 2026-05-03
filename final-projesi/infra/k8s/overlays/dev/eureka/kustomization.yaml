@@ -1,0 +1,11 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../../base/eureka/
+
+images:
+  - name: registry.hogwarts-1.local/n11-bootcamp/eureka
+    newTag: 2026.05.03.9
+
+patches:
+  - path: resources-patch.yaml

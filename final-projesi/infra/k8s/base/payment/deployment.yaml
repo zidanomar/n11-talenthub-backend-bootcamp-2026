@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: payment
+  template:
+    metadata:
+      labels:
+        app: payment
+    spec:
+      containers:
+        - name: payment
+          image: registry.hogwarts-1.local/n11-bootcamp/payment:latest
+          imagePullPolicy: Always
+          env:
+            - name: SPRING_CONFIG_IMPORT
+              value: configserver:http://config:8888
+            - name: SPRING_RABBITMQ_HOST
+              value: rabbitmq
+            - name: SPRING_RABBITMQ_PORT
+              value: "5672"
+            - name: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
+              value: http://eureka:8761/eureka/
+            - name: EUREKA_INSTANCE_PREFER_IP_ADDRESS
+              value: "true"
+            - name: IYZIPAY_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: iyzipay-credentials
+                  key: api-key
+            - name: IYZIPAY_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: iyzipay-credentials
+                  key: secret-key
+            - name: PAYMENT_CALLBACK_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: payment-config
+                  key: callback-base-url
+            - name: PAYMENT_FRONTEND_ORDER_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: payment-config
+                  key: frontend-order-url
+            - name: SPRING_DATASOURCE_URL
+              value: jdbc:postgresql://postgres:5432/paymentdb
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: username
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: password
+            - name: SPRING_JPA_HIBERNATE_DDL_AUTO
+              value: update
+          ports:
+            - containerPort: 8086
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8086
+            failureThreshold: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8086
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8086
+            periodSeconds: 10

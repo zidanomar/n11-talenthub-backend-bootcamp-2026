@@ -1,0 +1,68 @@
+{
+  "realm": "nilfheim",
+  "displayName": "Nilfheim",
+  "enabled": true,
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "accessTokenLifespan": 900,
+  "ssoSessionIdleTimeout": 86400,
+  "ssoSessionMaxLifespan": 86400,
+  "roles": {
+    "realm": [
+      { "name": "MERCHANT", "description": "Merchant role" },
+      { "name": "CUSTOMER", "description": "Customer role" }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "elbaph",
+      "name": "elbaph",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "uwlHqK2Gj24ThrUx1C5oSDyeczCrlZkg",
+      "redirectUris": ["*"],
+      "webOrigins": ["*"],
+      "publicClient": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "standardFlowEnabled": true
+    }
+  ],
+  "users": [
+    {
+      "id": "00000000-0000-0000-0000-000000000001",
+      "username": "odin",
+      "email": "odin@valhalla.gg",
+      "firstName": "Odin",
+      "lastName": "Allfather",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "gungnir",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["MERCHANT"]
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000002",
+      "username": "thor",
+      "email": "thor@asgard.gg",
+      "firstName": "Thor",
+      "lastName": "Odinson",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "mjolnir",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["CUSTOMER"]
+    }
+  ]
+}
